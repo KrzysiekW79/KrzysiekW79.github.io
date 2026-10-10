@@ -1,19 +1,24 @@
-const CACHE = 'fiszki-v3';
+const CACHE = 'fiszki-v4';
 const CORE = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
-// Po aktualizacji: kasuję stare kopie i przeładowuję otwarte okna, żeby od razu była nowa wersja.
+// Po aktualizacji: kasuję stare kopie, a otwarte okna przeładowuję dopiero PO zakończeniu aktywacji.
+// (Przeładowanie w trakcie aktywacji czeka na samą aktywację i strona się zawiesza.)
 self.addEventListener('activate', e => {
-  e.waitUntil((async () => {
+  const work = (async () => {
     const old = (await caches.keys()).filter(k => k !== CACHE);
     await Promise.all(old.map(k => caches.delete(k)));
     await self.clients.claim();
-    if (old.length) {
-      const wins = await self.clients.matchAll({ type: 'window' });
-      for (const w of wins) { try { await w.navigate(w.url); } catch (err) {} }
-    }
-  })());
+    return old.length > 0;
+  })();
+  e.waitUntil(work.then(() => {}));
+  work.then(upgraded => {
+    if (!upgraded) return;
+    setTimeout(() => {
+      self.clients.matchAll({ type: 'window' }).then(ws => ws.forEach(w => { w.navigate(w.url).catch(() => {}); }));
+    }, 300);
+  });
 });
 self.addEventListener('fetch', e => {
   const req = e.request;
